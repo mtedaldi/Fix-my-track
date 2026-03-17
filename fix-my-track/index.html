@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.2.2</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.2.3</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -530,13 +530,10 @@ function exportTCX() {
   const mkEl = tag => NS ? xmlDoc.createElementNS(NS, tag) : xmlDoc.createElement(tag);
   const mkText = (tag, val) => { const el = mkEl(tag); el.textContent = val; return el; };
 
-  console.log('Export: gaps to fix:', gaps.filter(g=>g.fixed&&g.fixPoints).length);
   gaps.filter(g => g.fixed && g.fixPoints).forEach(g => {
-    console.log(`Gap ${g.id}: fixPoints=${g.fixPoints.length}, toInsert=${g.fixPoints.slice(1,-1).length}`);
     const afterNode = g.after.node;
     const trackNode = afterNode.parentNode;
-    console.log(`trackNode tag: ${trackNode?.tagName}, afterNode tag: ${afterNode?.tagName}`);
-    if(!trackNode) { console.warn('No trackNode!'); return; }
+    if(!trackNode) return;
 
     const toInsert = g.fixPoints.slice(1, -1);
     toInsert.forEach(p => {
