@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fix My Track</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f8f7f4;--surface:#ffffff;--border:#e2e0da;--border2:#c8c5bc;
+  --text:#1a1917;--muted:#6b6860;--accent:#2563eb;--accent-light:#eff6ff;
+  --danger:#dc2626;--danger-light:#fef2f2;--success:#16a34a;--success-light:#f0fdf4;
+  --warn:#d97706;--warn-light:#fffbeb;
+  --radius:8px;--radius-lg:12px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* Header */
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 1rem;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:1rem}
+.logo{font-size:15px;font-weight:600;letter-spacing:-0.01em}
+.logo span{color:var(--accent)}
+.header-actions{display:flex;align-items:center;gap:8px}
+
+/* Layout */
+.app{display:flex;flex:1;overflow:hidden}
+.sidebar{width:320px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.map-wrap{flex:1;position:relative}
+#map{width:100%;height:100%}
+
+/* Sidebar sections */
+.sb-section{padding:14px 16px;border-bottom:1px solid var(--border)}
+.sb-section:last-child{border-bottom:none}
+.sb-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px}
+.sb-scroll{flex:1;overflow-y:auto}
+
+/* Drop zone */
+.drop-zone{border:1.5px dashed var(--border2);border-radius:var(--radius-lg);padding:2rem 1rem;text-align:center;cursor:pointer;transition:all 0.15s;color:var(--muted)}
+.drop-zone:hover,.drop-zone.over{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.drop-zone input{display:none}
+.dz-icon{font-size:28px;margin-bottom:8px}
+.dz-title{font-size:14px;font-weight:500;color:var(--text);margin-bottom:3px}
+.dz-sub{font-size:12px}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stat{background:var(--bg);border-radius:var(--radius);padding:8px 10px}
+.stat .lbl{font-size:11px;color:var(--muted);margin-bottom:2px}
+.stat .val{font-size:16px;font-weight:600}
+
+/* Gap list */
+.gap-item{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:all 0.12s}
+.gap-item:hover{border-color:var(--accent);background:var(--accent-light)}
+.gap-item.active{border-color:var(--accent);background:var(--accent-light);border-width:1.5px}
+.gap-item.fixed{border-color:var(--success);background:var(--success-light)}
+.gap-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.gap-label{font-size:13px;font-weight:500}
+.gap-badge{font-size:10px;padding:2px 6px;border-radius:4px;font-weight:500}
+.badge-gap{background:#dcfce7;color:#166534}
+.badge-fixed{background:#bbf7d0;color:#14532d}
+.gap-sub{font-size:11px;color:var(--muted)}
+
+/* Buttons */
+.btn{padding:7px 14px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s;display:inline-flex;align-items:center;gap:5px}
+.btn:hover{background:var(--bg);border-color:var(--text)}
+.btn:disabled{opacity:0.4;cursor:default}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary:hover{background:#1d4ed8;border-color:#1d4ed8}
+.btn.danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+.btn.danger:hover{background:#b91c1c}
+.btn.success{background:var(--success);color:#fff;border-color:var(--success)}
+.btn.sm{padding:4px 10px;font-size:12px}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap}
+
+/* Draw panel */
+.draw-panel{background:var(--warn-light);border:1px solid #fde68a;border-radius:var(--radius-lg);padding:12px 14px;margin-bottom:10px}
+.draw-panel .title{font-size:13px;font-weight:600;color:#92400e;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.draw-panel .sub{font-size:12px;color:#78350f;margin-bottom:10px;line-height:1.5}
+.draw-points{font-size:12px;color:#92400e;margin-bottom:8px;font-weight:500}
+
+/* Pace info */
+.pace-box{background:var(--bg);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px}
+.pace-box .row{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px}
+.pace-box .row:last-child{margin-bottom:0}
+.pace-box .key{color:var(--muted)}
+.pace-box .v{font-weight:500}
+
+/* Map overlays */
+.map-hint{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:8px 16px;border-radius:20px;font-size:13px;pointer-events:none;z-index:500;white-space:nowrap}
+.map-crosshair #map{cursor:crosshair!important}
+
+/* Status bar */
+.statusbar{background:var(--surface);border-top:1px solid var(--border);padding:6px 16px;font-size:12px;color:var(--muted);flex-shrink:0;display:flex;align-items:center;gap:8px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--border2);flex-shrink:0}
+.status-dot.green{background:var(--success)}
+.status-dot.blue{background:var(--accent)}
+.status-dot.orange{background:var(--warn)}
+
+.empty-state{text-align:center;color:var(--muted);padding:2rem 1rem;font-size:13px}
+.hidden{display:none!important}
+
+/* Leaflet overrides */
+.leaflet-control-zoom{border:1px solid var(--border)!important;border-radius:var(--radius)!important;overflow:hidden}
+.leaflet-control-zoom a{color:var(--text)!important}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.2.0</span></div>
+  <div class="header-actions">
+    <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
+    <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
+  </div>
+</header>
+
+<div class="app">
+  <div class="sidebar">
+
+    <!-- Load -->
+    <div class="sb-section" id="secLoad">
+      <div class="sb-title">Datei laden</div>
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept=".tcx">
+        <div class="dz-icon">&#128205;</div>
+        <div class="dz-title">TCX-Datei laden</div>
+        <div class="dz-sub">Hierher ziehen oder klicken</div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="sb-section hidden" id="secStats">
+      <div class="sb-title">Aktivität</div>
+      <div class="stats" id="statsGrid"></div>
+    </div>
+
+    <!-- Gaps -->
+    <div class="sb-section hidden" id="secGaps" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="sb-title">Lücken (<span id="gapCount">0</span>)</div>
+      <div class="sb-scroll" id="gapList"></div>
+    </div>
+
+    <!-- Draw panel (shown when drawing) -->
+    <div class="sb-section hidden" id="secDraw">
+      <div class="draw-panel">
+        <div class="title">&#9998; Zeichenmodus aktiv</div>
+        <div class="sub">Klicke auf der Karte den fehlenden Weg nach. Doppelklick zum Abschliessen.</div>
+        <div class="draw-points" id="drawPointCount">0 Punkte gesetzt</div>
+        <div class="btn-row">
+          <button class="btn sm danger" onclick="cancelDraw()">Abbrechen</button>
+          <button class="btn sm" onclick="undoPoint()">Letzten Punkt entfernen</button>
+          <button class="btn sm success" id="btnFinish" onclick="finishDraw()" disabled>Fertig</button>
+        </div>
+      </div>
+      <div class="pace-box" id="paceBox"></div>
+    </div>
+
+  </div>
+
+  <div class="map-wrap" id="mapWrap">
+    <div id="map"></div>
+    <div class="map-hint hidden" id="mapHint"></div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <div class="status-dot" id="statusDot"></div>
+  <span id="statusText">Bereit – TCX-Datei laden um zu beginnen</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let xmlDoc=null, trackpoints=[], gaps=[], activeGapId=null, drawMode=false;
+let drawnPoints=[], drawnPolyline=null, drawnMarkers=[], t0ms=0;
+let map, trackLayer=null, gapLayers={}, gapMarkers={};
+
+window.addEventListener('DOMContentLoaded', () => {
+map = L.map('map', {zoomControl:true, doubleClickZoom:false}).setView([47.0, 8.3], 9);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution:'© OpenStreetMap', maxZoom:19}).addTo(map);
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); if(e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if(e.target.files[0]) loadFile(e.target.files[0]); });
+}); // DOMContentLoaded
+
+function loadFile(f) {
+  const r = new FileReader();
+  r.onload = ev => {
+    xmlDoc = new DOMParser().parseFromString(ev.target.result, 'application/xml');
+    extractTrackpoints();
+    detectGaps(30000);
+    renderTrack();
+    renderUI();
+    setStatus('green', f.name + ' geladen – ' + trackpoints.length + ' Trackpoints');
+  };
+  r.readAsText(f);
+}
+
+function extractTrackpoints() {
+  trackpoints = [];
+  for(const tp of xmlDoc.getElementsByTagName('Trackpoint')) {
+    const tEl = tp.getElementsByTagName('Time')[0];
+    const latEl = tp.getElementsByTagName('LatitudeDegrees')[0];
+    const lonEl = tp.getElementsByTagName('LongitudeDegrees')[0];
+    const hrEl = tp.getElementsByTagName('Value')[0];
+    const cadEl = tp.getElementsByTagName('RunCadence')[0];
+    const distEl = tp.getElementsByTagName('DistanceMeters')[0];
+    if(!tEl || !latEl || !lonEl) continue;
+    const t = new Date(tEl.textContent.trim());
+    if(isNaN(t)) continue;
+    trackpoints.push({
+      time: t, node: tp,
+      lat: parseFloat(latEl.textContent),
+      lng: parseFloat(lonEl.textContent),
+      hr: hrEl ? parseInt(hrEl.textContent) : null,
+      cad: cadEl ? parseInt(cadEl.textContent) : null,
+      dist: distEl ? parseFloat(distEl.textContent) : null,
+    });
+  }
+  trackpoints.sort((a,b) => a.time - b.time);
+  t0ms = trackpoints[0]?.time.getTime() || 0;
+}
+
+function detectGaps(thresholdMs) {
+  gaps = [];
+  let id = 0;
+  for(let i=1; i<trackpoints.length; i++) {
+    const gap = trackpoints[i].time - trackpoints[i-1].time;
+    if(gap >= thresholdMs) {
+      gaps.push({
+        id: id++,
+        before: trackpoints[i-1],
+        after: trackpoints[i],
+        gapMs: gap,
+        fixed: false,
+        fixPoints: null,
+      });
+    }
+  }
+}
+
+// ─── Rendering ────────────────────────────────────────────────────────────────
+function renderTrack() {
+  if(trackLayer) map.removeLayer(trackLayer);
+  Object.values(gapLayers).forEach(l => map.removeLayer(l));
+  Object.values(gapMarkers).forEach(l => map.removeLayer(l));
+  gapLayers = {}; gapMarkers = {};
+
+  const latlngs = trackpoints.map(tp => [tp.lat, tp.lng]);
+  trackLayer = L.polyline(latlngs, {color:'#2563eb', weight:3, opacity:0.8}).addTo(map);
+  map.fitBounds(trackLayer.getBounds(), {padding:[30,30]});
+
+  gaps.forEach(g => renderGapOnMap(g));
+}
+
+function renderGapOnMap(g) {
+  if(gapLayers[g.id]) { map.removeLayer(gapLayers[g.id]); }
+  if(gapMarkers[g.id]) { map.removeLayer(gapMarkers[g.id]); }
+
+  if(g.fixed && g.fixPoints) {
+    const ll = g.fixPoints.map(p => [p.lat, p.lng]);
+    gapLayers[g.id] = L.polyline(ll, {color:'#16a34a', weight:3, opacity:0.9, dashArray:'6,4'}).addTo(map);
+  } else {
+    const ll = [[g.before.lat, g.before.lng],[g.after.lat, g.after.lng]];
+    gapLayers[g.id] = L.polyline(ll, {color:'#dc2626', weight:3, opacity:0.7, dashArray:'8,6'}).addTo(map);
+  }
+
+  const midLat = (g.before.lat + g.after.lat) / 2;
+  const midLng = (g.before.lng + g.after.lng) / 2;
+  const icon = L.divIcon({
+    html: `<div style="background:${g.fixed?'#16a34a':'#dc2626'};color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${g.id+1}</div>`,
+    className:'', iconSize:[22,22], iconAnchor:[11,11]
+  });
+  gapMarkers[g.id] = L.marker([midLat, midLng], {icon}).addTo(map)
+    .on('click', () => selectGap(g.id));
+}
+
+function renderUI() {
+  document.getElementById('secLoad').classList.add('hidden');
+  document.getElementById('secStats').classList.remove('hidden');
+  document.getElementById('secGaps').classList.remove('hidden');
+  document.getElementById('btnReset').style.display = '';
+  document.getElementById('btnExport').style.display = '';
+  renderStats();
+  renderGapList();
+}
+
+function renderStats() {
+  const tot = trackpoints[trackpoints.length-1].time - trackpoints[0].time;
+  const gapMs = gaps.reduce((a,g) => a + g.gapMs, 0);
+  document.getElementById('statsGrid').innerHTML =
+    stat('Gesamtzeit', msToRT(tot)) +
+    stat('Bewegungszeit', msToRT(tot - gapMs)) +
+    stat('Lücken', gaps.length) +
+    stat('Trackpoints', trackpoints.length);
+}
+
+function stat(l,v) {
+  return `<div class="stat"><div class="lbl">${l}</div><div class="val">${v}</div></div>`;
+}
+
+function renderGapList() {
+  document.getElementById('gapCount').textContent = gaps.length;
+  const ul = document.getElementById('gapList');
+  if(!gaps.length) { ul.innerHTML = '<div class="empty-state">Keine Lücken gefunden</div>'; return; }
+  ul.innerHTML = gaps.map(g => {
+    const rtB = msToRT(g.before.time - trackpoints[0].time);
+    const rtA = msToRT(g.after.time - trackpoints[0].time);
+    const dist = haversine(g.before.lat, g.before.lng, g.after.lat, g.after.lng);
+    return `<div class="gap-item${g.id===activeGapId?' active':''}${g.fixed?' fixed':''}" onclick="selectGap(${g.id})">
+      <div class="gap-top">
+        <span class="gap-label">Lücke ${g.id+1} &nbsp; ${rtB}–${rtA}</span>
+        <span class="gap-badge ${g.fixed?'badge-fixed':'badge-gap'}">${g.fixed?'Geflickt':'Lücke'}</span>
+      </div>
+      <div class="gap-sub">${(g.gapMs/1000).toFixed(0)}s fehlen · ~${dist.toFixed(0)}m Luftlinie</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Gap selection ────────────────────────────────────────────────────────────
+function selectGap(id) {
+  if(drawMode) return;
+  activeGapId = id;
+  renderGapList();
+  const g = gaps.find(x => x.id===id);
+  if(!g) return;
+
+  const bounds = L.latLngBounds([
+    [g.before.lat, g.before.lng],
+    [g.after.lat, g.after.lng]
+  ]);
+  map.fitBounds(bounds, {padding:[80,80], maxZoom:17});
+
+  showDrawPanel(g);
+  setStatus('blue', 'Lücke ' + (id+1) + ' ausgewählt – Zeichenmodus starten um Weg einzuzeichnen');
+}
+
+function showDrawPanel(g) {
+  document.getElementById('secDraw').classList.remove('hidden');
+  const pace = contextPace(g);
+  const dist = haversine(g.before.lat, g.before.lng, g.after.lat, g.after.lng);
+  document.getElementById('paceBox').innerHTML =
+    `<div class="row"><span class="key">Pace vor Lücke</span><span class="v">${fmtPace(pace.before)}</span></div>` +
+    `<div class="row"><span class="key">Pace nach Lücke</span><span class="v">${fmtPace(pace.after)}</span></div>` +
+    `<div class="row"><span class="key">Mittlere Pace (wird verwendet)</span><span class="v">${fmtPace(pace.avg)}</span></div>` +
+    `<div class="row"><span class="key">Luftlinie Lücke</span><span class="v">${dist.toFixed(0)} m</span></div>` +
+    `<div class="row"><span class="key">Fehlende Zeit</span><span class="v">${(g.gapMs/1000).toFixed(0)}s</span></div>`;
+
+  if(!g.fixed) {
+    startDraw();
+  }
+}
+
+// ─── Draw mode ────────────────────────────────────────────────────────────────
+function startDraw() {
+  drawMode = true;
+  drawnPoints = [];
+  drawnMarkers.forEach(m => map.removeLayer(m));
+  drawnMarkers = [];
+  if(drawnPolyline) { map.removeLayer(drawnPolyline); drawnPolyline = null; }
+
+  document.getElementById('mapWrap').classList.add('map-crosshair');
+  showHint('Klicken um Punkte zu setzen · Doppelklick zum Abschliessen');
+  updateDrawPanel();
+
+  map.on('click', onMapClick);
+  map.on('dblclick', onMapDblClick);
+  setStatus('orange', 'Zeichenmodus – klicke den Weg auf der Karte nach');
+}
+
+function onMapClick(e) {
+  if(!drawMode) return;
+  drawnPoints.push({lat: e.latlng.lat, lng: e.latlng.lng});
+  const marker = L.circleMarker([e.latlng.lat, e.latlng.lng], {
+    radius:5, color:'#d97706', fillColor:'#fbbf24', fillOpacity:1, weight:2
+  }).addTo(map);
+  drawnMarkers.push(marker);
+  updateDrawPolyline();
+  updateDrawPanel();
+}
+
+function onMapDblClick(e) {
+  if(!drawMode) return;
+  // add the point from dblclick too
+  drawnPoints.push({lat: e.latlng.lat, lng: e.latlng.lng});
+  const marker = L.circleMarker([e.latlng.lat, e.latlng.lng], {
+    radius:5, color:'#d97706', fillColor:'#fbbf24', fillOpacity:1, weight:2
+  }).addTo(map);
+  drawnMarkers.push(marker);
+  updateDrawPolyline();
+  finishDraw();
+}
+
+function updateDrawPolyline() {
+  if(drawnPolyline) map.removeLayer(drawnPolyline);
+  if(drawnPoints.length < 2) return;
+  drawnPolyline = L.polyline(drawnPoints.map(p=>[p.lat,p.lng]), {
+    color:'#d97706', weight:3, opacity:0.9, dashArray:'5,4'
+  }).addTo(map);
+}
+
+function updateDrawPanel() {
+  document.getElementById('drawPointCount').textContent = drawnPoints.length + ' Punkte gesetzt';
+  document.getElementById('btnFinish').disabled = drawnPoints.length < 2;
+}
+
+function undoPoint() {
+  if(!drawnPoints.length) return;
+  drawnPoints.pop();
+  const m = drawnMarkers.pop();
+  if(m) map.removeLayer(m);
+  updateDrawPolyline();
+  updateDrawPanel();
+}
+
+function cancelDraw() {
+  endDrawMode();
+  document.getElementById('secDraw').classList.add('hidden');
+  activeGapId = null;
+  renderGapList();
+  setStatus('green', 'Zeichenmodus abgebrochen');
+}
+
+function finishDraw() {
+  if(drawnPoints.length < 2) return;
+  const g = gaps.find(x => x.id === activeGapId);
+  if(!g) return;
+
+  endDrawMode();
+
+  // Add start and end points of gap
+  const allPts = [
+    {lat: g.before.lat, lng: g.before.lng},
+    ...drawnPoints,
+    {lat: g.after.lat, lng: g.after.lng}
+  ];
+
+  // Calculate total drawn distance
+  let totalDist = 0;
+  for(let i=1; i<allPts.length; i++) totalDist += haversine(allPts[i-1].lat, allPts[i-1].lng, allPts[i].lat, allPts[i].lng);
+
+  // Assign timestamps based on pace
+  const pace = contextPace(g); // s/m
+  const estimatedRunTime = totalDist * pace.avg; // seconds for the segment
+  const t0 = g.before.time.getTime();
+  const t1 = g.after.time.getTime();
+  // We keep start and end timestamps fixed; distribute intermediate points proportionally
+  let cumDist = 0;
+  const timed = allPts.map((p,i) => {
+    if(i === 0) return {...p, time: new Date(t0)};
+    cumDist += haversine(allPts[i-1].lat, allPts[i-1].lng, p.lat, p.lng);
+    const frac = totalDist > 0 ? cumDist / totalDist : i/(allPts.length-1);
+    const t = new Date(t0 + frac * (t1 - t0));
+    return {...p, time: t};
+  });
+  timed[timed.length-1].time = new Date(t1);
+
+  g.fixPoints = timed;
+  g.fixed = true;
+
+  renderGapOnMap(g);
+  document.getElementById('secDraw').classList.add('hidden');
+  renderGapList();
+  renderStats();
+
+  const fixedCount = gaps.filter(x=>x.fixed).length;
+  setStatus('green', `Lücke ${g.id+1} geflickt · ${fixedCount}/${gaps.length} Lücken repariert`);
+
+  // Check if all gaps fixed
+  if(fixedCount === gaps.length) {
+    showHint('Alle Lücken geflickt – TCX exportieren!');
+    setTimeout(hideHint, 3000);
+  }
+}
+
+function endDrawMode() {
+  drawMode = false;
+  map.off('click', onMapClick);
+  map.off('dblclick', onMapDblClick);
+  document.getElementById('mapWrap').classList.remove('map-crosshair');
+  hideHint();
+  drawnMarkers.forEach(m => map.removeLayer(m));
+  drawnMarkers = [];
+  if(drawnPolyline) { map.removeLayer(drawnPolyline); drawnPolyline = null; }
+  drawnPoints = [];
+}
+
+// ─── Pace calculation ─────────────────────────────────────────────────────────
+function contextPace(g) {
+  const WINDOW = 30000; // 30s
+  const beforePts = trackpoints.filter(tp => tp.time <= g.before.time && g.before.time - tp.time <= WINDOW);
+  const afterPts  = trackpoints.filter(tp => tp.time >= g.after.time  && tp.time - g.after.time  <= WINDOW);
+
+  function segPace(pts) {
+    if(pts.length < 2) return null;
+    let d = 0;
+    for(let i=1;i<pts.length;i++) d += haversine(pts[i-1].lat, pts[i-1].lng, pts[i].lat, pts[i].lng);
+    const s = (pts[pts.length-1].time - pts[0].time) / 1000;
+    return d > 1 ? s/d : null;
+  }
+
+  const pb = segPace(beforePts);
+  const pa = segPace(afterPts);
+  const avg = pb && pa ? (pb+pa)/2 : (pb||pa||5.5);
+  return {before: pb, after: pa, avg};
+}
+
+function fmtPace(secPerM) {
+  if(!secPerM) return '–';
+  const minkm = secPerM * 1000 / 60;
+  const m = Math.floor(minkm);
+  const s = Math.round((minkm-m)*60);
+  return `${m}:${String(s).padStart(2,'0')} min/km`;
+}
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+function exportTCX() {
+  if(!xmlDoc) return;
+  let added = 0;
+
+  gaps.filter(g => g.fixed && g.fixPoints).forEach(g => {
+    // Find the 'Track' node containing the 'after' trackpoint
+    const afterNode = g.after.node;
+    const trackNode = afterNode.parentNode;
+    if(!trackNode) return;
+
+    // Insert synthetic trackpoints between before and after (skip first and last = real points)
+    const toInsert = g.fixPoints.slice(1, -1);
+    toInsert.forEach(p => {
+      const tp = xmlDoc.createElement('Trackpoint');
+      const lat = g.before.lat + (p.lat - g.before.lat); // already correct
+      const distFromBefore = haversine(g.before.lat, g.before.lng, p.lat, p.lng);
+      const baseDist = g.before.dist || 0;
+
+      tp.innerHTML =
+        `<Time>${p.time.toISOString()}</Time>` +
+        `<Position><LatitudeDegrees>${p.lat.toFixed(7)}</LatitudeDegrees><LongitudeDegrees>${p.lng.toFixed(7)}</LongitudeDegrees></Position>` +
+        (baseDist ? `<DistanceMeters>${(baseDist + distFromBefore).toFixed(2)}</DistanceMeters>` : '');
+      trackNode.insertBefore(tp, afterNode);
+      added++;
+    });
+  });
+
+  const xml = new XMLSerializer().serializeToString(xmlDoc);
+  const blob = new Blob([xml], {type:'application/xml'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'activity_fixed_' + new Date().toISOString().slice(0,16).replace(/[T:]/g,'_') + '.tcx';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  setStatus('green', `Export fertig – ${added} Trackpoints eingefügt`);
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function haversine(lat1,lon1,lat2,lon2) {
+  const R=6371000, p=Math.PI/180;
+  const a=Math.sin((lat2-lat1)*p/2)**2+Math.cos(lat1*p)*Math.cos(lat2*p)*Math.sin((lon2-lon1)*p/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+function msToRT(ms) {
+  const s=Math.floor(ms/1000), m=Math.floor(s/60), h=Math.floor(m/60);
+  if(h>0) return h+':'+(''+(m%60)).padStart(2,'0')+':'+(''+(s%60)).padStart(2,'0');
+  return m+':'+(''+(s%60)).padStart(2,'0');
+}
+
+function setStatus(color, text) {
+  document.getElementById('statusDot').className = 'status-dot ' + color;
+  document.getElementById('statusText').textContent = text;
+}
+
+function showHint(txt) {
+  const h = document.getElementById('mapHint');
+  h.textContent = txt;
+  h.classList.remove('hidden');
+}
+
+function hideHint() {
+  document.getElementById('mapHint').classList.add('hidden');
+}
+
+function resetAll() {
+  xmlDoc=null; trackpoints=[]; gaps=[]; activeGapId=null;
+  endDrawMode();
+  if(trackLayer) { map.removeLayer(trackLayer); trackLayer=null; }
+  Object.values(gapLayers).forEach(l=>map.removeLayer(l)); gapLayers={};
+  Object.values(gapMarkers).forEach(l=>map.removeLayer(l)); gapMarkers={};
+  document.getElementById('secLoad').classList.remove('hidden');
+  document.getElementById('secStats').classList.add('hidden');
+  document.getElementById('secGaps').classList.add('hidden');
+  document.getElementById('secDraw').classList.add('hidden');
+  document.getElementById('btnReset').style.display='none';
+  document.getElementById('btnExport').style.display='none';
+  document.getElementById('fileInput').value='';
+  setStatus('', 'Bereit – TCX-Datei laden um zu beginnen');
+}
+</script>
+</body>
+</html>
+

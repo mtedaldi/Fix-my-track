@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TCX Pause Editor</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:#f8f7f4;--surface:#ffffff;--border:#e2e0da;--border2:#c8c5bc;
+  --text:#1a1917;--muted:#6b6860;--accent:#2563eb;--accent-light:#eff6ff;
+  --danger:#dc2626;--danger-light:#fef2f2;--success:#16a34a;--success-light:#f0fdf4;
+  --warn:#d97706;--warn-light:#fffbeb;
+  --radius:8px;--radius-lg:12px;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: var(--text); background: var(--bg); min-height: 100vh; padding: 1.5rem; }
+.header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 1.5rem; }
+.logo { font-size: 18px; font-weight: 600; }
+.logo span { color: var(--accent); }
+.version { font-size: 11px; color: var(--muted); }
+.btn { padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); cursor: pointer; font-size: 13px; font-weight: 500; }
+.btn:hover { background: var(--bg); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary:hover { background: #1d4ed8; }
+.btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.btn.success { background: var(--success); color: #fff; border-color: var(--success); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.sm { padding: 4px 10px; font-size: 12px; }
+.drop-zone { border: 1.5px dashed var(--border2); border-radius: var(--radius-lg); padding: 2.5rem; text-align: center; cursor: pointer; color: var(--muted); margin-bottom: 1.5rem; }
+.drop-zone:hover, .drop-zone.over { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+.drop-zone input { display: none; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 1rem; }
+.stat { background: var(--surface); border-radius: var(--radius); padding: 8px 10px; border: 1px solid var(--border); }
+.stat .lbl { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.stat .val { font-size: 18px; font-weight: 600; }
+.timeline-wrap { margin-bottom: 1rem; }
+.tl-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 3px; }
+canvas { width: 100%; height: 60px; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
+.threshold-row { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; background: var(--surface); border: 1px solid var(--border); padding: 10px 14px; border-radius: var(--radius); flex-wrap: wrap; }
+.threshold-row label { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.threshold-row input[type=range] { flex: 1; min-width: 80px; }
+.threshold-row .val { font-size: 13px; font-weight: 500; min-width: 32px; }
+.list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px; }
+.section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.pause-list { display: flex; flex-direction: column; gap: 5px; }
+.pause-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 10px; cursor: pointer; }
+.pause-item.sel { border-color: var(--accent); background: var(--accent-light); }
+.pause-item.del { opacity: 0.4; }
+.pause-badge { font-size: 11px; padding: 2px 7px; border-radius: var(--radius); font-weight: 500; white-space: nowrap; margin-top: 1px; }
+.badge-event { background: var(--warn-light); color: var(--warn); }
+.badge-gap { background: var(--success-light); color: var(--success); }
+.pi-main { font-size: 13px; font-weight: 500; }
+.pi-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.pi-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.icon-btn { border: 1px solid var(--border); background: transparent; border-radius: var(--radius); cursor: pointer; padding: 3px 8px; font-size: 12px; color: var(--muted); }
+.icon-btn:hover { background: var(--bg); color: var(--text); }
+.icon-btn.red { color: var(--danger); }
+.icon-btn.grn { color: var(--success); }
+.empty-state { text-align: center; color: var(--muted); padding: 2rem; font-size: 13px; }
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--border2); padding: 1.25rem; width: min(90%, 400px); }
+.modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 1rem; }
+.mf label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; margin-top: 10px; }
+.mf input, .mf select { width: 100%; padding: 6px 10px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--surface); color: var(--text); font-size: 13px; }
+.modal-note { font-size: 12px; color: var(--muted); margin-top: 8px; padding: 8px; background: var(--bg); border-radius: var(--radius); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 1rem; }
+.hidden { display: none !important; }
+.legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); align-items: center; }
+.leg-dot { width: 12px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 3px; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#1c1b19; --surface:#27261f; --border:#3a3830; --border2:#4a4840; --text:#e8e6e0; --muted:#8a8880; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">TCX Pause <span>Editor</span></div>
+  <span class="version">v0.1.0</span>
+</div>
+
+<div class="drop-zone" id="dropZone">
+  <input type="file" id="fileInput" accept=".tcx">
+  <div style="font-size:15px;font-weight:600;margin-bottom:4px">TCX-Datei laden</div>
+  <div style="font-size:12px">Datei hierher ziehen oder klicken</div>
+</div>
+
+<div id="main" class="hidden">
+  <div class="stats-grid" id="statsGrid"></div>
+
+  <div class="timeline-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+      <span class="section-title">Timeline</span>
+      <div class="legend">
+        <span><span class="leg-dot" style="background:#fbbf24"></span>Lap/Event</span>
+        <span><span class="leg-dot" style="background:#34d399"></span>Zeitlücke</span>
+      </div>
+    </div>
+    <canvas id="tlCanvas" height="60"></canvas>
+    <div class="tl-labels"><span>0:00</span><span id="tlEnd"></span></div>
+  </div>
+
+  <div class="threshold-row">
+    <label>Lücken-Schwellenwert:</label>
+    <input type="range" id="gapThr" min="5" max="300" value="30" step="5">
+    <span class="val" id="gapThrVal">30s</span>
+    <button class="btn sm" onclick="redetect()">Neu erkennen</button>
+  </div>
+
+  <div class="list-header">
+    <span class="section-title">Erkannte Pausen (<span id="pCount">0</span>)</span>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn sm" onclick="selAll()">Alle wählen</button>
+      <button class="btn sm danger" id="btnDel" onclick="delSel()" disabled>Ausgewählte löschen</button>
+      <button class="btn sm" onclick="restoreAll()">Alle zurücksetzen</button>
+    </div>
+  </div>
+  <div class="pause-list" id="pauseList"></div>
+
+  <div class="toolbar">
+    <button class="btn primary" onclick="exportTCX()">TCX exportieren</button>
+    <button class="btn" onclick="resetAll()">Neue Datei</button>
+    <span id="expStatus" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+</div>
+
+<div id="editModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <h3 id="modalTitle">Pause bearbeiten</h3>
+    <div class="mf">
+      <label>Aktion</label>
+      <select id="editAction" onchange="updateModalNote()">
+        <option value="trim">Nur markieren / nicht ändern</option>
+        <option value="cut">Herausschneiden (Zeit-Kontinuität)</option>
+        <option value="interp">Interpolierte Punkte einfügen</option>
+      </select>
+      <div class="modal-note" id="modalNote"></div>
+      <label>Start (Laufzeit mm:ss oder hh:mm:ss)</label>
+      <input id="editStart" placeholder="z.B. 23:45">
+      <label>Ende (Laufzeit)</label>
+      <input id="editEnd" placeholder="z.B. 27:12">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Abbrechen</button>
+      <button class="btn primary" onclick="applyEdit()">Übernehmen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let xmlDoc=null, pauses=[], trackpoints=[], selectedIds=new Set(), editingId=null;
+
+const dropZone=document.getElementById('dropZone');
+const fileInput=document.getElementById('fileInput');
+dropZone.addEventListener('click',()=>fileInput.click());
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('over')});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('over'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('over');if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0])});
+fileInput.addEventListener('change',e=>{if(e.target.files[0])loadFile(e.target.files[0])});
+
+function loadFile(f){
+  const r=new FileReader();
+  r.onload=ev=>{
+    xmlDoc=new DOMParser().parseFromString(ev.target.result,'application/xml');
+    extractTPs();
+    redetect();
+    document.getElementById('main').classList.remove('hidden');
+    dropZone.classList.add('hidden');
+  };
+  r.readAsText(f);
+}
+
+function extractTPs(){
+  trackpoints=[];
+  for(const tp of xmlDoc.getElementsByTagName('Trackpoint')){
+    const tEls=tp.getElementsByTagName('Time');
+    if(!tEls.length) continue;
+    const t=new Date(tEls[0].textContent.trim());
+    if(!isNaN(t)) trackpoints.push({time:t,node:tp});
+  }
+  trackpoints.sort((a,b)=>a.time-b.time);
+}
+
+function t0(){return trackpoints.length?trackpoints[0].time.getTime():0}
+
+function msToRT(ms){
+  const s=Math.floor(ms/1000),m=Math.floor(s/60),h=Math.floor(m/60);
+  if(h>0) return h+':'+(''+(m%60)).padStart(2,'0')+':'+(''+(s%60)).padStart(2,'0');
+  return m+':'+(''+(s%60)).padStart(2,'0');
+}
+
+function rtToMs(str){
+  const parts=str.trim().split(':').map(Number);
+  if(parts.some(isNaN)) return null;
+  if(parts.length===3) return (parts[0]*3600+parts[1]*60+parts[2])*1000;
+  if(parts.length===2) return (parts[0]*60+parts[1])*1000;
+  return null;
+}
+
+function msToClockStr(ms){
+  const s=Math.floor(ms/1000);
+  return Math.floor(s/60)+'min '+(s%60)+'s';
+}
+
+function redetect(){
+  const thr=parseInt(document.getElementById('gapThr').value)*1000;
+  document.getElementById('gapThrVal').textContent=(thr/1000)+'s';
+  pauses=[];let id=0;
+  for(const lap of xmlDoc.getElementsByTagName('Lap')){
+    const stEl=lap.getElementsByTagName('StartTime');
+    const durEl=lap.getElementsByTagName('TotalTimeSeconds');
+    if(!stEl.length||!durEl.length) continue;
+    const st=new Date(stEl[0].textContent.trim());
+    const dur=parseFloat(durEl[0].textContent.trim())*1000;
+    if(isNaN(st)||isNaN(dur)) continue;
+    const et=new Date(st.getTime()+dur);
+    const trigEl=lap.getElementsByTagName('TriggerMethod');
+    const trig=trigEl.length?trigEl[0].textContent.trim():'?';
+    pauses.push({id:id++,type:'event',source:'Lap ('+trig+')',start:st,end:et,deleted:false,action:'trim',node:lap});
+  }
+  for(let i=1;i<trackpoints.length;i++){
+    const gap=trackpoints[i].time-trackpoints[i-1].time;
+    if(gap>=thr) pauses.push({id:id++,type:'gap',source:'Zeitlücke',start:trackpoints[i-1].time,end:trackpoints[i].time,deleted:false,action:'trim',node:null});
+  }
+  pauses.sort((a,b)=>a.start-b.start);
+  selectedIds.clear();
+  render();
+}
+
+function rtOf(d){return msToRT(d.getTime()-t0())}
+
+function render(){
+  renderStats();
+  renderList();
+  drawTimeline();
+  document.getElementById('btnDel').disabled=selectedIds.size===0;
+}
+
+function renderStats(){
+  if(!trackpoints.length) return;
+  const tot=trackpoints[trackpoints.length-1].time-trackpoints[0].time;
+  const ap=pauses.filter(p=>!p.deleted);
+  const pauseMs=ap.reduce((a,p)=>a+(p.end-p.start),0);
+  const mov=Math.max(0,tot-pauseMs);
+  document.getElementById('statsGrid').innerHTML=
+    `<div class="stat"><div class="lbl">Gesamtzeit</div><div class="val">${msToRT(tot)}</div></div>`+
+    `<div class="stat"><div class="lbl">Bewegungszeit</div><div class="val">${msToRT(mov)}</div></div>`+
+    `<div class="stat"><div class="lbl">Pausen</div><div class="val">${ap.length}</div></div>`+
+    `<div class="stat"><div class="lbl">Pausenzeit</div><div class="val">${msToRT(pauseMs)}</div></div>`+
+    `<div class="stat"><div class="lbl">Trackpoints</div><div class="val">${trackpoints.length}</div></div>`;
+}
+
+const actionLabels={trim:'Markiert',cut:'Herausschneiden',interp:'Interpolieren'};
+
+function renderList(){
+  const ul=document.getElementById('pauseList');
+  document.getElementById('pCount').textContent=pauses.filter(p=>!p.deleted).length;
+  if(!pauses.length){ul.innerHTML='<div class="empty-state">Keine Pausen erkannt</div>';return}
+  ul.innerHTML=pauses.map(p=>{
+    const dur=p.end-p.start;
+    const rtStart=rtOf(p.start),rtEnd=rtOf(p.end);
+    const clock=p.start.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const sel=selectedIds.has(p.id);
+    const bc=p.type==='gap'?'badge-gap':'badge-event';
+    const bl=p.type==='gap'?'Lücke':'Event';
+    const actionBadge=p.action!=='trim'?` <span style="font-size:10px;opacity:0.8">[${actionLabels[p.action]}]</span>`:'';
+    return `<div class="pause-item${sel?' sel':''}${p.deleted?' del':''}" id="pi-${p.id}" onclick="toggleSel(${p.id})">
+      <span class="pause-badge ${bc}">${bl}</span>
+      <div>
+        <div class="pi-main">${rtStart} – ${rtEnd} (${msToClockStr(dur)})${actionBadge}</div>
+        <div class="pi-sub">${p.source} · ${clock}</div>
+      </div>
+      <div class="pi-actions" onclick="event.stopPropagation()">
+        <button class="icon-btn" onclick="openEdit(${p.id})">Bearbeiten</button>
+        ${p.deleted
+          ?`<button class="icon-btn grn" onclick="toggleDel(${p.id})">Wiederherstellen</button>`
+          :`<button class="icon-btn red" onclick="toggleDel(${p.id})">Löschen</button>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function drawTimeline(){
+  const canvas=document.getElementById('tlCanvas');
+  const W=canvas.offsetWidth||640,H=60;
+  canvas.width=W*devicePixelRatio;canvas.height=H*devicePixelRatio;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  const ctx=canvas.getContext('2d');ctx.scale(devicePixelRatio,devicePixelRatio);
+  if(!trackpoints.length) return;
+  const tMin=t0(),tMax=trackpoints[trackpoints.length-1].time.getTime(),span=tMax-tMin||1;
+  const toX=t=>((t-tMin)/span)*(W-16)+8;
+  const dark=window.matchMedia('(prefers-color-scheme:dark)').matches;
+  ctx.fillStyle=dark?'#27261f':'#f4f3ee';
+  ctx.beginPath();ctx.roundRect(0,0,W,H,8);ctx.fill();
+  ctx.fillStyle=dark?'#3a3830':'#dddbd3';
+  ctx.fillRect(8,22,W-16,16);
+  ctx.fillStyle=dark?'#6a6860':'#aaa89f';
+  trackpoints.forEach(tp=>ctx.fillRect(toX(tp.time.getTime()),22,1,16));
+  pauses.forEach(p=>{
+    if(p.deleted) return;
+    const x1=toX(p.start.getTime()),x2=Math.max(x1+3,toX(p.end.getTime()));
+    const sel=selectedIds.has(p.id);
+    ctx.fillStyle=p.type==='gap'?(sel?'#059669':'#6ee7b7'):(sel?'#d97706':'#fcd34d');
+    ctx.globalAlpha=0.88;ctx.fillRect(x1,16,x2-x1,28);ctx.globalAlpha=1;
+  });
+  document.getElementById('tlEnd').textContent=msToRT(tMax-tMin);
+}
+
+function toggleSel(id){selectedIds.has(id)?selectedIds.delete(id):selectedIds.add(id);render()}
+function selAll(){pauses.filter(p=>!p.deleted).forEach(p=>selectedIds.add(p.id));render()}
+function toggleDel(id){const p=pauses.find(x=>x.id===id);if(p){p.deleted=!p.deleted;selectedIds.delete(id)}render()}
+function delSel(){selectedIds.forEach(id=>{const p=pauses.find(x=>x.id===id);if(p)p.deleted=true});selectedIds.clear();render()}
+function restoreAll(){pauses.forEach(p=>{p.deleted=false;p.action='trim'});selectedIds.clear();render()}
+
+const actionNotes={
+  trim:'Pause wird nur markiert – keine Änderung an den Daten.',
+  cut:'Trackpoints in der Lücke werden entfernt und Zeitstempel verschoben – kein Sprung mehr in der Zeit.',
+  interp:'Lineare Dummy-Punkte werden eingefügt (Position, keine HR/Kadenz). Nur für kurze Lücken.'
+};
+
+function openEdit(id){
+  const p=pauses.find(x=>x.id===id);if(!p)return;
+  editingId=id;
+  document.getElementById('modalTitle').textContent=(p.type==='gap'?'Zeitlücke':'Lap-Pause')+' bearbeiten';
+  document.getElementById('editAction').value=p.action||'trim';
+  document.getElementById('editStart').value=rtOf(p.start);
+  document.getElementById('editEnd').value=rtOf(p.end);
+  updateModalNote();
+  document.getElementById('editModal').classList.remove('hidden');
+}
+
+function updateModalNote(){
+  document.getElementById('modalNote').textContent=actionNotes[document.getElementById('editAction').value]||'';
+}
+
+function closeModal(){document.getElementById('editModal').classList.add('hidden');editingId=null}
+
+function applyEdit(){
+  const p=pauses.find(x=>x.id===editingId);if(!p)return;
+  const sMs=rtToMs(document.getElementById('editStart').value);
+  const eMs=rtToMs(document.getElementById('editEnd').value);
+  if(sMs===null||eMs===null||eMs<=sMs){alert('Ungültige Laufzeit-Eingabe (Format: mm:ss oder hh:mm:ss)');return}
+  p.start=new Date(t0()+sMs);p.end=new Date(t0()+eMs);
+  p.action=document.getElementById('editAction').value;
+  closeModal();render();
+}
+
+function exportTCX(){
+  if(!xmlDoc) return;
+  let removed=0,shifted=0,interpolated=0;
+  const toRemove=new Set();
+  pauses.filter(p=>p.deleted||p.action!=='trim').forEach(p=>{
+    if(p.action==='trim'&&!p.deleted) return;
+    if(p.action==='cut'||p.deleted){
+      trackpoints.forEach(tp=>{if(tp.time>=p.start&&tp.time<=p.end)toRemove.add(tp.node)});
+      const gap=p.end.getTime()-p.start.getTime();
+      trackpoints.filter(tp=>tp.time>p.end).forEach(tp=>{
+        const newT=new Date(tp.time.getTime()-gap);
+        const tEl=tp.node.getElementsByTagName('Time')[0];
+        if(tEl)tEl.textContent=newT.toISOString();
+        tp.time=newT;shifted++;
+      });
+    }
+    if(p.action==='interp'){
+      const before=trackpoints.slice().reverse().find(tp=>tp.time<=p.start);
+      const after=trackpoints.find(tp=>tp.time>=p.end);
+      if(before&&after){
+        const steps=Math.max(2,Math.floor((p.end-p.start)/30000));
+        const latB=getCoord(before.node,'LatitudeDegrees'),lonB=getCoord(before.node,'LongitudeDegrees');
+        const latA=getCoord(after.node,'LatitudeDegrees'),lonA=getCoord(after.node,'LongitudeDegrees');
+        const track=before.node.parentNode;
+        if(track&&latB!==null&&latA!==null){
+          for(let i=1;i<steps;i++){
+            const frac=i/steps;
+            const t=new Date(p.start.getTime()+frac*(p.end-p.start));
+            const lat=latB+frac*(latA-latB),lon=lonB+frac*(lonA-lonB);
+            const tp=xmlDoc.createElement('Trackpoint');
+            tp.innerHTML=`<Time>${t.toISOString()}</Time><Position><LatitudeDegrees>${lat.toFixed(7)}</LatitudeDegrees><LongitudeDegrees>${lon.toFixed(7)}</LongitudeDegrees></Position>`;
+            track.insertBefore(tp,after.node);interpolated++;
+          }
+        }
+      }
+    }
+  });
+  toRemove.forEach(n=>n.parentNode&&n.parentNode.removeChild(n));
+  removed=toRemove.size;
+  trackpoints=trackpoints.filter(tp=>!toRemove.has(tp.node));
+  const xml=new XMLSerializer().serializeToString(xmlDoc);
+  const blob=new Blob([xml],{type:'application/xml'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='activity_edited_'+new Date().toISOString().slice(0,16).replace(/[T:]/g,'_')+'.tcx';
+  a.click();
+  let msg=[];
+  if(removed) msg.push(removed+' Punkte entfernt');
+  if(shifted) msg.push(shifted+' Zeitstempel verschoben');
+  if(interpolated) msg.push(interpolated+' Dummy-Punkte eingefügt');
+  document.getElementById('expStatus').textContent=msg.length?msg.join(', '):'Keine Änderungen';
+  render();
+}
+
+function getCoord(node,tag){
+  const els=node.getElementsByTagName(tag);
+  return els.length?parseFloat(els[0].textContent):null;
+}
+
+function resetAll(){
+  xmlDoc=null;pauses=[];trackpoints=[];selectedIds.clear();
+  document.getElementById('main').classList.add('hidden');
+  dropZone.classList.remove('hidden');
+  fileInput.value='';
+}
+
+document.getElementById('gapThr').addEventListener('input',function(){
+  document.getElementById('gapThrVal').textContent=this.value+'s';
+});
+window.addEventListener('resize',drawTimeline);
+</script>
+</body>
+</html>
