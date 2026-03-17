@@ -11,6 +11,7 @@ A collection of browser-based tools to repair and clean up GPS activity files (`
 ## Tools
 
 ### 📋 TCX Pause Editor — `v0.1.0`
+🔗 **[Live: mtedaldi.github.io/Fix-my-track/pause-editor/](https://mtedaldi.github.io/Fix-my-track/pause-editor/)**
 [`pause-editor/index.html`](pause-editor/index.html)
 
 A lightweight tool for inspecting and cleaning up pause events in a `.tcx` file. Detects gaps in the track (based on time between trackpoints) as well as Lap/Event markers set by the watch. You can delete pauses, adjust their boundaries, or cut them out entirely to restore time continuity.
@@ -20,6 +21,7 @@ A lightweight tool for inspecting and cleaning up pause events in a `.tcx` file.
 ---
 
 ### 🗺️ Fix My Track — `v0.2.0`
+🔗 **[Live: mtedaldi.github.io/Fix-my-track/fix-my-track/](https://mtedaldi.github.io/Fix-my-track/fix-my-track/)**
 [`fix-my-track/index.html`](fix-my-track/index.html)
 
 The full tool. Displays your track on an interactive OpenStreetMap and lets you draw missing segments directly on the map. Timestamps for new points are interpolated from the pace in the 30 seconds surrounding the gap.
