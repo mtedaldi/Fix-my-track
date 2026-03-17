@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.2.0</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.2.1</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -251,7 +251,8 @@ function renderTrack() {
   gapLayers = {}; gapMarkers = {};
 
   const latlngs = trackpoints.map(tp => [tp.lat, tp.lng]);
-  trackLayer = L.polyline(latlngs, {color:'#2563eb', weight:3, opacity:0.8}).addTo(map);
+  trackLayer = L.polyline(latlngs, {color:'#2563eb', weight:3, opacity:0.7}).addTo(map);
+  trackLayer.bringToBack();
   map.fitBounds(trackLayer.getBounds(), {padding:[30,30]});
 
   gaps.forEach(g => renderGapOnMap(g));
@@ -263,7 +264,8 @@ function renderGapOnMap(g) {
 
   if(g.fixed && g.fixPoints) {
     const ll = g.fixPoints.map(p => [p.lat, p.lng]);
-    gapLayers[g.id] = L.polyline(ll, {color:'#16a34a', weight:3, opacity:0.9, dashArray:'6,4'}).addTo(map);
+    gapLayers[g.id] = L.polyline(ll, {color:'#16a34a', weight:5, opacity:0.9}).addTo(map);
+    gapLayers[g.id].bringToFront();
   } else {
     const ll = [[g.before.lat, g.before.lng],[g.after.lat, g.after.lng]];
     gapLayers[g.id] = L.polyline(ll, {color:'#dc2626', weight:3, opacity:0.7, dashArray:'8,6'}).addTo(map);
@@ -522,24 +524,27 @@ function exportTCX() {
   if(!xmlDoc) return;
   let added = 0;
 
+  const NS = xmlDoc.documentElement.namespaceURI || '';
+  const mkEl = tag => NS ? xmlDoc.createElementNS(NS, tag) : xmlDoc.createElement(tag);
+  const mkText = (tag, val) => { const el = mkEl(tag); el.textContent = val; return el; };
+
   gaps.filter(g => g.fixed && g.fixPoints).forEach(g => {
-    // Find the 'Track' node containing the 'after' trackpoint
     const afterNode = g.after.node;
     const trackNode = afterNode.parentNode;
     if(!trackNode) return;
 
-    // Insert synthetic trackpoints between before and after (skip first and last = real points)
     const toInsert = g.fixPoints.slice(1, -1);
     toInsert.forEach(p => {
-      const tp = xmlDoc.createElement('Trackpoint');
-      const lat = g.before.lat + (p.lat - g.before.lat); // already correct
-      const distFromBefore = haversine(g.before.lat, g.before.lng, p.lat, p.lng);
-      const baseDist = g.before.dist || 0;
-
-      tp.innerHTML =
-        `<Time>${p.time.toISOString()}</Time>` +
-        `<Position><LatitudeDegrees>${p.lat.toFixed(7)}</LatitudeDegrees><LongitudeDegrees>${p.lng.toFixed(7)}</LongitudeDegrees></Position>` +
-        (baseDist ? `<DistanceMeters>${(baseDist + distFromBefore).toFixed(2)}</DistanceMeters>` : '');
+      const tp = mkEl('Trackpoint');
+      tp.appendChild(mkText('Time', p.time.toISOString()));
+      const pos = mkEl('Position');
+      pos.appendChild(mkText('LatitudeDegrees', p.lat.toFixed(7)));
+      pos.appendChild(mkText('LongitudeDegrees', p.lng.toFixed(7)));
+      tp.appendChild(pos);
+      if(g.before.dist) {
+        const d = haversine(g.before.lat, g.before.lng, p.lat, p.lng);
+        tp.appendChild(mkText('DistanceMeters', (g.before.dist + d).toFixed(2)));
+      }
       trackNode.insertBefore(tp, afterNode);
       added++;
     });
