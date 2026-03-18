@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.2.3</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.3.0</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -140,19 +140,28 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
       <div class="sb-scroll" id="gapList"></div>
     </div>
 
-    <!-- Draw panel (shown when drawing) -->
+    <!-- Gap info + draw panel -->
     <div class="sb-section hidden" id="secDraw">
-      <div class="draw-panel">
-        <div class="title">&#9998; Zeichenmodus aktiv</div>
-        <div class="sub">Klicke auf der Karte den fehlenden Weg nach. Doppelklick zum Abschliessen.</div>
-        <div class="draw-points" id="drawPointCount">0 Punkte gesetzt</div>
+      <div class="pace-box" id="paceBox"></div>
+      <div id="drawIdle" style="margin-top:8px">
         <div class="btn-row">
+          <button class="btn sm primary" onclick="startDraw()">Weg zeichnen</button>
+          <button class="btn sm danger" id="btnUndoFix" onclick="undoFix()" style="display:none">Fix rückgängig</button>
+        </div>
+      </div>
+      <div id="drawActive" style="display:none;margin-top:8px">
+        <div class="draw-panel">
+          <div class="title">&#9998; Zeichenmodus aktiv</div>
+          <div class="sub">Klicke auf der Karte den fehlenden Weg nach. Doppelklick zum Abschliessen.</div>
+          <div class="draw-points" id="drawPointCount">0 Punkte gesetzt</div>
+          <div id="paceWarning" style="display:none;font-size:12px;color:var(--danger);margin-top:6px;padding:6px 8px;background:var(--danger-light);border-radius:var(--radius)"></div>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
           <button class="btn sm danger" onclick="cancelDraw()">Abbrechen</button>
-          <button class="btn sm" onclick="undoPoint()">Letzten Punkt entfernen</button>
+          <button class="btn sm" onclick="undoPoint()">Letzten Punkt</button>
           <button class="btn sm success" id="btnFinish" onclick="finishDraw()" disabled>Fertig</button>
         </div>
       </div>
-      <div class="pace-box" id="paceBox"></div>
     </div>
 
   </div>
@@ -338,23 +347,29 @@ function selectGap(id) {
   map.fitBounds(bounds, {padding:[80,80], maxZoom:17});
 
   showDrawPanel(g);
-  setStatus('blue', 'Lücke ' + (id+1) + ' ausgewählt – Zeichenmodus starten um Weg einzuzeichnen');
+  setStatus('blue', 'Lücke ' + (id+1) + ' ausgewählt' + (g.fixed ? ' – bereits geflickt' : ' – Weg zeichnen um zu reparieren'));
 }
 
 function showDrawPanel(g) {
   document.getElementById('secDraw').classList.remove('hidden');
   const pace = contextPace(g);
   const dist = haversine(g.before.lat, g.before.lng, g.after.lat, g.after.lng);
+  const maxDist = (g.gapMs / 1000) / pace.avg; // metres possible at this pace
   document.getElementById('paceBox').innerHTML =
     `<div class="row"><span class="key">Pace vor Lücke</span><span class="v">${fmtPace(pace.before)}</span></div>` +
     `<div class="row"><span class="key">Pace nach Lücke</span><span class="v">${fmtPace(pace.after)}</span></div>` +
-    `<div class="row"><span class="key">Mittlere Pace (wird verwendet)</span><span class="v">${fmtPace(pace.avg)}</span></div>` +
+    `<div class="row"><span class="key">Verwendete Pace</span><span class="v">${fmtPace(pace.avg)}</span></div>` +
     `<div class="row"><span class="key">Luftlinie Lücke</span><span class="v">${dist.toFixed(0)} m</span></div>` +
-    `<div class="row"><span class="key">Fehlende Zeit</span><span class="v">${(g.gapMs/1000).toFixed(0)}s</span></div>`;
+    `<div class="row"><span class="key">Fehlende Zeit</span><span class="v">${(g.gapMs/1000).toFixed(0)}s</span></div>` +
+    `<div class="row"><span class="key">Max. Distanz bei Pace</span><span class="v">${maxDist.toFixed(0)} m</span></div>`;
 
-  if(!g.fixed) {
-    startDraw();
-  }
+  document.getElementById('btnUndoFix').style.display = g.fixed ? '' : 'none';
+  setDrawUIState('idle');
+}
+
+function setDrawUIState(state) {
+  document.getElementById('drawIdle').style.display  = state === 'idle'   ? '' : 'none';
+  document.getElementById('drawActive').style.display = state === 'active' ? '' : 'none';
 }
 
 // ─── Draw mode ────────────────────────────────────────────────────────────────
@@ -366,7 +381,9 @@ function startDraw() {
   if(drawnPolyline) { map.removeLayer(drawnPolyline); drawnPolyline = null; }
 
   document.getElementById('mapWrap').classList.add('map-crosshair');
+  document.getElementById('paceWarning').style.display = 'none';
   showHint('Klicken um Punkte zu setzen · Doppelklick zum Abschliessen');
+  setDrawUIState('active');
   updateDrawPanel();
 
   map.on('click', onMapClick);
@@ -408,6 +425,31 @@ function updateDrawPolyline() {
 function updateDrawPanel() {
   document.getElementById('drawPointCount').textContent = drawnPoints.length + ' Punkte gesetzt';
   document.getElementById('btnFinish').disabled = drawnPoints.length < 2;
+
+  // Live pace warning
+  const g = gaps.find(x => x.id === activeGapId);
+  const warn = document.getElementById('paceWarning');
+  if(!g || drawnPoints.length < 2) { warn.style.display = 'none'; return; }
+
+  const allPts = [{lat:g.before.lat,lng:g.before.lng}, ...drawnPoints, {lat:g.after.lat,lng:g.after.lng}];
+  let drawnDist = 0;
+  for(let i=1;i<allPts.length;i++) drawnDist += haversine(allPts[i-1].lat,allPts[i-1].lng,allPts[i].lat,allPts[i].lng);
+
+  const pace = contextPace(g);
+  const neededSec = drawnDist * pace.avg;
+  const availSec = g.gapMs / 1000;
+
+  if(neededSec > availSec) {
+    const over = (neededSec - availSec).toFixed(0);
+    warn.style.display = '';
+    warn.textContent = `⚠ Strecke zu lang: ${drawnDist.toFixed(0)}m benötigt ${neededSec.toFixed(0)}s, verfügbar ${availSec.toFixed(0)}s (+${over}s). Pace würde überschritten.`;
+  } else {
+    const pauseRest = (availSec - neededSec).toFixed(0);
+    warn.style.display = pauseRest > 2 ? '' : 'none';
+    warn.style.color = 'var(--success)';
+    warn.style.background = 'var(--success-light)';
+    warn.textContent = `✓ Strecke passt. Verbleibende Pause: ${pauseRest}s`;
+  }
 }
 
 function undoPoint() {
@@ -421,9 +463,9 @@ function undoPoint() {
 
 function cancelDraw() {
   endDrawMode();
-  document.getElementById('secDraw').classList.add('hidden');
-  activeGapId = null;
-  renderGapList();
+  const g = gaps.find(x => x.id === activeGapId);
+  setDrawUIState('idle');
+  if(g) document.getElementById('btnUndoFix').style.display = g.fixed ? '' : 'none';
   setStatus('green', 'Zeichenmodus abgebrochen');
 }
 
@@ -432,49 +474,57 @@ function finishDraw() {
   const g = gaps.find(x => x.id === activeGapId);
   if(!g) return;
 
-  // Save points BEFORE endDrawMode clears drawnPoints
   const savedPoints = drawnPoints.slice();
   endDrawMode();
 
-  // Add start and end points of gap
   const allPts = [
     {lat: g.before.lat, lng: g.before.lng},
     ...savedPoints,
     {lat: g.after.lat, lng: g.after.lng}
   ];
 
-  // Calculate total drawn distance
+  // Total drawn distance
   let totalDist = 0;
-  for(let i=1; i<allPts.length; i++) totalDist += haversine(allPts[i-1].lat, allPts[i-1].lng, allPts[i].lat, allPts[i].lng);
+  for(let i=1; i<allPts.length; i++)
+    totalDist += haversine(allPts[i-1].lat, allPts[i-1].lng, allPts[i].lat, allPts[i].lng);
 
-  // Assign timestamps based on pace
-  const pace = contextPace(g); // s/m
-  const estimatedRunTime = totalDist * pace.avg; // seconds for the segment
+  const pace = contextPace(g);
   const t0 = g.before.time.getTime();
   const t1 = g.after.time.getTime();
-  // We keep start and end timestamps fixed; distribute intermediate points proportionally
+  const availMs = t1 - t0;
+
+  // Pace-based duration for drawn segment
+  const runMs = totalDist * pace.avg * 1000;
+  // Cap at available time (if too long, pace will be exceeded – user was warned)
+  const usedMs = Math.min(runMs, availMs);
+
+  // Distribute timestamps proportionally along drawn distance within usedMs
   let cumDist = 0;
-  const timed = allPts.map((p,i) => {
+  const timed = allPts.map((p, i) => {
     if(i === 0) return {...p, time: new Date(t0)};
     cumDist += haversine(allPts[i-1].lat, allPts[i-1].lng, p.lat, p.lng);
-    const frac = totalDist > 0 ? cumDist / totalDist : i/(allPts.length-1);
-    const t = new Date(t0 + frac * (t1 - t0));
-    return {...p, time: t};
+    const frac = totalDist > 0 ? cumDist / totalDist : i / (allPts.length - 1);
+    return {...p, time: new Date(t0 + Math.round(frac * usedMs))};
   });
-  timed[timed.length-1].time = new Date(t1);
+  // Last point gets exact end of run segment (not necessarily t1)
+  timed[timed.length-1].time = new Date(t0 + Math.round(usedMs));
 
   g.fixPoints = timed;
   g.fixed = true;
 
   renderGapOnMap(g);
-  document.getElementById('secDraw').classList.add('hidden');
+  setDrawUIState('idle');
+  document.getElementById('btnUndoFix').style.display = '';
   renderGapList();
   renderStats();
 
+  const pauseRest = Math.max(0, availMs - runMs);
   const fixedCount = gaps.filter(x=>x.fixed).length;
-  setStatus('green', `Lücke ${g.id+1} geflickt · ${fixedCount}/${gaps.length} Lücken repariert`);
+  const msg = pauseRest > 2000
+    ? `Lücke ${g.id+1} geflickt · verbleibende Pause: ${(pauseRest/1000).toFixed(0)}s`
+    : `Lücke ${g.id+1} geflickt · ${fixedCount}/${gaps.length} Lücken repariert`;
+  setStatus('green', msg);
 
-  // Check if all gaps fixed
   if(fixedCount === gaps.length) {
     showHint('Alle Lücken geflickt – TCX exportieren!');
     setTimeout(hideHint, 3000);
@@ -491,6 +541,18 @@ function endDrawMode() {
   drawnMarkers = [];
   if(drawnPolyline) { map.removeLayer(drawnPolyline); drawnPolyline = null; }
   drawnPoints = [];
+}
+
+function undoFix() {
+  const g = gaps.find(x => x.id === activeGapId);
+  if(!g || !g.fixed) return;
+  g.fixed = false;
+  g.fixPoints = null;
+  renderGapOnMap(g);
+  renderGapList();
+  renderStats();
+  document.getElementById('btnUndoFix').style.display = 'none';
+  setStatus('blue', `Lücke ${g.id+1} – Fix rückgängig gemacht`);
 }
 
 // ─── Pace calculation ─────────────────────────────────────────────────────────
