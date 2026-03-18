@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.3.0</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.3.1</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -142,6 +142,10 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 
     <!-- Gap info + draw panel -->
     <div class="sb-section hidden" id="secDraw">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span class="sb-title" id="drawPanelTitle">Lücke</span>
+        <button class="btn sm" onclick="closeDrawPanel()">← Liste</button>
+      </div>
       <div class="pace-box" id="paceBox"></div>
       <div id="drawIdle" style="margin-top:8px">
         <div class="btn-row">
@@ -351,10 +355,12 @@ function selectGap(id) {
 }
 
 function showDrawPanel(g) {
+  document.getElementById('secGaps').classList.add('hidden');
   document.getElementById('secDraw').classList.remove('hidden');
+  document.getElementById('drawPanelTitle').textContent = `Lücke ${g.id+1}${g.fixed ? ' ✓' : ''}`;
   const pace = contextPace(g);
   const dist = haversine(g.before.lat, g.before.lng, g.after.lat, g.after.lng);
-  const maxDist = (g.gapMs / 1000) / pace.avg; // metres possible at this pace
+  const maxDist = (g.gapMs / 1000) / pace.avg;
   document.getElementById('paceBox').innerHTML =
     `<div class="row"><span class="key">Pace vor Lücke</span><span class="v">${fmtPace(pace.before)}</span></div>` +
     `<div class="row"><span class="key">Pace nach Lücke</span><span class="v">${fmtPace(pace.after)}</span></div>` +
@@ -362,9 +368,17 @@ function showDrawPanel(g) {
     `<div class="row"><span class="key">Luftlinie Lücke</span><span class="v">${dist.toFixed(0)} m</span></div>` +
     `<div class="row"><span class="key">Fehlende Zeit</span><span class="v">${(g.gapMs/1000).toFixed(0)}s</span></div>` +
     `<div class="row"><span class="key">Max. Distanz bei Pace</span><span class="v">${maxDist.toFixed(0)} m</span></div>`;
-
   document.getElementById('btnUndoFix').style.display = g.fixed ? '' : 'none';
   setDrawUIState('idle');
+}
+
+function closeDrawPanel() {
+  if(drawMode) cancelDraw();
+  document.getElementById('secDraw').classList.add('hidden');
+  document.getElementById('secGaps').classList.remove('hidden');
+  activeGapId = null;
+  renderGapList();
+  setStatus('green', 'Lücke auswählen um zu beginnen');
 }
 
 function setDrawUIState(state) {
@@ -463,9 +477,7 @@ function undoPoint() {
 
 function cancelDraw() {
   endDrawMode();
-  const g = gaps.find(x => x.id === activeGapId);
   setDrawUIState('idle');
-  if(g) document.getElementById('btnUndoFix').style.display = g.fixed ? '' : 'none';
   setStatus('green', 'Zeichenmodus abgebrochen');
 }
 
@@ -513,8 +525,9 @@ function finishDraw() {
   g.fixed = true;
 
   renderGapOnMap(g);
-  setDrawUIState('idle');
-  document.getElementById('btnUndoFix').style.display = '';
+  document.getElementById('secDraw').classList.add('hidden');
+  document.getElementById('secGaps').classList.remove('hidden');
+  activeGapId = null;
   renderGapList();
   renderStats();
 
