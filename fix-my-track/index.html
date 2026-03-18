@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.3.1</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.3.2</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -507,19 +507,18 @@ function finishDraw() {
 
   // Pace-based duration for drawn segment
   const runMs = totalDist * pace.avg * 1000;
-  // Cap at available time (if too long, pace will be exceeded – user was warned)
-  const usedMs = Math.min(runMs, availMs);
+  // Pause at start of gap, run segment at end (user forgot to restart watch)
+  const pauseMs = Math.max(0, availMs - runMs);
+  const runStartMs = t0 + pauseMs;
 
-  // Distribute timestamps proportionally along drawn distance within usedMs
   let cumDist = 0;
   const timed = allPts.map((p, i) => {
     if(i === 0) return {...p, time: new Date(t0)};
     cumDist += haversine(allPts[i-1].lat, allPts[i-1].lng, p.lat, p.lng);
     const frac = totalDist > 0 ? cumDist / totalDist : i / (allPts.length - 1);
-    return {...p, time: new Date(t0 + Math.round(frac * usedMs))};
+    return {...p, time: new Date(runStartMs + Math.round(frac * Math.min(runMs, availMs)))};
   });
-  // Last point gets exact end of run segment (not necessarily t1)
-  timed[timed.length-1].time = new Date(t0 + Math.round(usedMs));
+  timed[timed.length-1].time = new Date(t0 + Math.round(availMs));
 
   g.fixPoints = timed;
   g.fixed = true;
