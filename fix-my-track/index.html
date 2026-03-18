@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.3.2</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.4.0</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -147,6 +147,16 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
         <button class="btn sm" onclick="closeDrawPanel()">← Liste</button>
       </div>
       <div class="pace-box" id="paceBox"></div>
+      <div class="pace-box" id="elevBox" style="margin-top:6px">
+        <div class="row">
+          <span class="key">Höhendaten</span>
+          <select id="elevSourceSel" onchange="elevationSource=this.value" style="font-size:12px;border:0.5px solid var(--border2);border-radius:var(--radius);padding:1px 4px;background:var(--surface);color:var(--text)">
+            <option value="swisstopo">Swisstopo</option>
+            <option value="opentopodata">OpenTopoData</option>
+            <option value="none">Keine</option>
+          </select>
+        </div>
+      </div>
       <div id="drawIdle" style="margin-top:8px">
         <div class="btn-row">
           <button class="btn sm primary" onclick="startDraw()">Weg zeichnen</button>
@@ -189,7 +199,21 @@ let map, trackLayer=null, gapLayers={}, gapMarkers={};
 
 window.addEventListener('DOMContentLoaded', () => {
 map = L.map('map', {zoomControl:true, doubleClickZoom:false}).setView([47.0, 8.3], 9);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution:'© OpenStreetMap', maxZoom:19}).addTo(map);
+
+// ─── Tile layers ───────────────────────────────────────────────────────────
+const layers = {
+  'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom:19
+  }),
+  'Swisstopo Karte': L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+    attribution:'© <a href="https://swisstopo.ch">swisstopo</a>', maxZoom:19
+  }),
+  'Swisstopo Luftbild': L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg', {
+    attribution:'© <a href="https://swisstopo.ch">swisstopo</a>', maxZoom:20
+  }),
+};
+layers['OpenStreetMap'].addTo(map);
+L.control.layers(layers, {}, {position:'topright', collapsed:false}).addTo(map);
 
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
@@ -200,6 +224,38 @@ dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.
 fileInput.addEventListener('change', e => { if(e.target.files[0]) loadFile(e.target.files[0]); });
 }); // DOMContentLoaded
 
+// ─── Switzerland detection ─────────────────────────────────────────────────
+const CH_BOUNDS = {minLat:45.8, maxLat:47.8, minLng:5.9, maxLng:10.5};
+let isSwissTrack = false;
+let elevationSource = 'auto'; // 'auto' | 'swisstopo' | 'opentopodata' | 'none'
+
+function detectSwitzerland() {
+  if(!trackpoints.length) return false;
+  const lats = trackpoints.map(t=>t.lat);
+  const lngs = trackpoints.map(t=>t.lng);
+  const midLat = (Math.min(...lats)+Math.max(...lats))/2;
+  const midLng = (Math.min(...lngs)+Math.max(...lngs))/2;
+  return midLat >= CH_BOUNDS.minLat && midLat <= CH_BOUNDS.maxLat &&
+         midLng >= CH_BOUNDS.minLng && midLng <= CH_BOUNDS.maxLng;
+}
+
+function autoConfigureLayers() {
+  isSwissTrack = detectSwitzerland();
+  if(isSwissTrack) {
+    // Switch to Swisstopo map
+    map.eachLayer(l => { if(l._url) map.removeLayer(l); });
+    // Find Swisstopo layer from control — re-add directly
+    L.tileLayer('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg', {
+      attribution:'© <a href="https://swisstopo.ch">swisstopo</a>', maxZoom:19
+    }).addTo(map);
+    elevationSource = 'swisstopo';
+    setStatus('green', 'Schweizer Track erkannt – Swisstopo-Karte und -Höhendaten aktiv');
+  } else {
+    elevationSource = 'opentopodata';
+  }
+  updateElevSourceUI();
+}
+
 function loadFile(f) {
   const r = new FileReader();
   r.onload = ev => {
@@ -208,6 +264,7 @@ function loadFile(f) {
     detectGaps(30000);
     renderTrack();
     renderUI();
+    autoConfigureLayers();
     setStatus('green', f.name + ' geladen – ' + trackpoints.length + ' Trackpoints');
   };
   r.readAsText(f);
@@ -595,8 +652,67 @@ function fmtPace(secPerM) {
   return `${m}:${String(s).padStart(2,'0')} min/km`;
 }
 
-// ─── Export ───────────────────────────────────────────────────────────────────
-function exportTCX() {
+function updateElevSourceUI() {
+  const sel = document.getElementById('elevSourceSel');
+  if(sel) sel.value = elevationSource === 'auto' ? (isSwissTrack ? 'swisstopo' : 'opentopodata') : elevationSource;
+}
+
+// ─── Elevation fetching ───────────────────────────────────────────────────────
+// WGS84 → LV95 (approx, sufficient for API calls)
+function wgs84toLV95(lat, lng) {
+  const lat_ = (lat * 3600 - 169028.66) / 10000;
+  const lng_ = (lng * 3600 - 26782.5) / 10000;
+  const E = 2600072.37 + 211455.93*lng_ - 10938.51*lat_*lng_ - 0.36*lat_*lng_*lng_ - 44.54*lng_*lng_*lng_;
+  const N = 1200147.07 + 308807.95*lat_ + 3745.25*lng_*lng_ + 76.63*lat_*lat_ - 194.56*lng_*lng_*lat_ + 119.79*lat_*lat_*lat_;
+  return {E, N};
+}
+
+async function fetchElevationsSwisstopo(points) {
+  // Batch: up to 50 points per request via profile API
+  const results = new Array(points.length).fill(null);
+  const BATCH = 50;
+  for(let i=0; i<points.length; i+=BATCH) {
+    const batch = points.slice(i, i+BATCH);
+    const coords = batch.map(p => {
+      const lv = wgs84toLV95(p.lat, p.lng);
+      return [lv.E, lv.N];
+    });
+    try {
+      const url = `https://api3.geo.admin.ch/rest/services/profile.json?nb_points=${batch.length}&polyline=${encodeURIComponent(JSON.stringify({type:'LineString',coordinates:coords}))}`;
+      const r = await fetch(url);
+      if(!r.ok) continue;
+      const data = await r.json();
+      data.forEach((pt, j) => { results[i+j] = pt.alts?.COMB ?? pt.alts?.DTM2 ?? null; });
+    } catch(e) { console.warn('Swisstopo elevation error:', e); }
+  }
+  return results;
+}
+
+async function fetchElevationsOpenTopo(points) {
+  const results = new Array(points.length).fill(null);
+  const BATCH = 100;
+  for(let i=0; i<points.length; i+=BATCH) {
+    const batch = points.slice(i, i+BATCH);
+    const locs = batch.map(p => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join('|');
+    try {
+      const r = await fetch(`https://api.opentopodata.org/v1/srtm30m?locations=${locs}`);
+      if(!r.ok) continue;
+      const data = await r.json();
+      data.results.forEach((pt, j) => { results[i+j] = pt.elevation; });
+    } catch(e) { console.warn('OpenTopoData elevation error:', e); }
+  }
+  return results;
+}
+
+async function fetchElevations(points) {
+  const src = elevationSource === 'auto' ? (isSwissTrack ? 'swisstopo' : 'opentopodata') : elevationSource;
+  if(src === 'none') return new Array(points.length).fill(null);
+  if(src === 'swisstopo') return fetchElevationsSwisstopo(points);
+  return fetchElevationsOpenTopo(points);
+}
+
+
+async function exportTCX() {
   if(!xmlDoc) return;
   let added = 0;
 
@@ -604,7 +720,18 @@ function exportTCX() {
   const mkEl = tag => NS ? xmlDoc.createElementNS(NS, tag) : xmlDoc.createElement(tag);
   const mkText = (tag, val) => { const el = mkEl(tag); el.textContent = val; return el; };
 
-  gaps.filter(g => g.fixed && g.fixPoints).forEach(g => {
+  const fixedGaps = gaps.filter(g => g.fixed && g.fixPoints);
+  const allInsertPoints = fixedGaps.flatMap(g => g.fixPoints.slice(1, -1));
+
+  let elevations = new Array(allInsertPoints.length).fill(null);
+  if(allInsertPoints.length > 0 && elevationSource !== 'none') {
+    setStatus('blue', `Höhendaten werden abgefragt (${allInsertPoints.length} Punkte)…`);
+    try { elevations = await fetchElevations(allInsertPoints); }
+    catch(e) { console.warn('Elevation fetch failed:', e); }
+  }
+
+  let elevIdx = 0;
+  fixedGaps.forEach(g => {
     const afterNode = g.after.node;
     const trackNode = afterNode.parentNode;
     if(!trackNode) return;
@@ -617,6 +744,10 @@ function exportTCX() {
       pos.appendChild(mkText('LatitudeDegrees', p.lat.toFixed(7)));
       pos.appendChild(mkText('LongitudeDegrees', p.lng.toFixed(7)));
       tp.appendChild(pos);
+      const elev = elevations[elevIdx++];
+      if(elev !== null && elev !== undefined) {
+        tp.appendChild(mkText('AltitudeMeters', elev.toFixed(1)));
+      }
       if(g.before.dist) {
         const d = haversine(g.before.lat, g.before.lng, p.lat, p.lng);
         tp.appendChild(mkText('DistanceMeters', (g.before.dist + d).toFixed(2)));
@@ -633,7 +764,7 @@ function exportTCX() {
   a.download = 'activity_fixed_' + new Date().toISOString().slice(0,16).replace(/[T:]/g,'_') + '.tcx';
   a.click();
   URL.revokeObjectURL(a.href);
-  setStatus('green', `Export fertig – ${added} Trackpoints eingefügt`);
+  setStatus('green', `Export fertig – ${added} Trackpoints eingefügt` + (elevationSource !== 'none' ? ` mit Höhendaten (${elevationSource})` : ''));
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
