@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.4.0</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.4.1</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -538,6 +538,38 @@ function cancelDraw() {
   setStatus('green', 'Zeichenmodus abgebrochen');
 }
 
+// ─── Path resampling ──────────────────────────────────────────────────────────
+// Interpoliert einen Pfad auf gleichmässige Abstände (step Meter)
+// damit die Punktdichte keinen Einfluss auf die Pace-Anzeige hat
+function resamplePath(pts, stepM = 5) {
+  if(pts.length < 2) return pts;
+  const result = [{...pts[0]}];
+  let carry = 0; // übrige Distanz vom letzten Segment
+
+  for(let i = 1; i < pts.length; i++) {
+    const segLen = haversine(pts[i-1].lat, pts[i-1].lng, pts[i].lat, pts[i].lng);
+    if(segLen === 0) continue;
+    const dLat = pts[i].lat - pts[i-1].lat;
+    const dLng = pts[i].lng - pts[i-1].lng;
+    let d = carry; // wie weit sind wir im aktuellen Segment?
+
+    while(d + stepM <= segLen) {
+      d += stepM;
+      const frac = d / segLen;
+      result.push({
+        lat: pts[i-1].lat + frac * dLat,
+        lng: pts[i-1].lng + frac * dLng,
+      });
+    }
+    carry = segLen - (d - (carry === 0 ? 0 : carry % stepM)) % stepM;
+    // simpler: rest nach letztem vollständigem Schritt
+    carry = (d < segLen) ? segLen - d : 0;
+  }
+  // Letzten Punkt immer anhängen
+  result.push({...pts[pts.length-1]});
+  return result;
+}
+
 function finishDraw() {
   if(drawnPoints.length < 2) return;
   const g = gaps.find(x => x.id === activeGapId);
@@ -546,11 +578,14 @@ function finishDraw() {
   const savedPoints = drawnPoints.slice();
   endDrawMode();
 
-  const allPts = [
+  const rawPts = [
     {lat: g.before.lat, lng: g.before.lng},
     ...savedPoints,
     {lat: g.after.lat, lng: g.after.lng}
   ];
+
+  // Re-sample to equal spacing (5m) so point density doesn't affect pace display
+  const allPts = resamplePath(rawPts, 5);
 
   // Total drawn distance
   let totalDist = 0;
