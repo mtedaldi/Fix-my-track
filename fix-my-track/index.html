@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.4.1</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.4.2</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -539,33 +539,31 @@ function cancelDraw() {
 }
 
 // ─── Path resampling ──────────────────────────────────────────────────────────
-// Interpoliert einen Pfad auf gleichmässige Abstände (step Meter)
-// damit die Punktdichte keinen Einfluss auf die Pace-Anzeige hat
 function resamplePath(pts, stepM = 5) {
   if(pts.length < 2) return pts;
-  const result = [{...pts[0]}];
-  let carry = 0; // übrige Distanz vom letzten Segment
 
-  for(let i = 1; i < pts.length; i++) {
-    const segLen = haversine(pts[i-1].lat, pts[i-1].lng, pts[i].lat, pts[i].lng);
-    if(segLen === 0) continue;
-    const dLat = pts[i].lat - pts[i-1].lat;
-    const dLng = pts[i].lng - pts[i-1].lng;
-    let d = carry; // wie weit sind wir im aktuellen Segment?
+  // Cumulative distances along original path
+  const cum = [0];
+  for(let i = 1; i < pts.length; i++)
+    cum.push(cum[i-1] + haversine(pts[i-1].lat, pts[i-1].lng, pts[i].lat, pts[i].lng));
+  const total = cum[cum.length-1];
+  if(total === 0) return pts;
 
-    while(d + stepM <= segLen) {
-      d += stepM;
-      const frac = d / segLen;
-      result.push({
-        lat: pts[i-1].lat + frac * dLat,
-        lng: pts[i-1].lng + frac * dLng,
-      });
+  const result = [];
+  for(let d = 0; d < total; d += stepM) {
+    // Binary search for segment containing d
+    let lo = 0, hi = pts.length - 2;
+    while(lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if(cum[mid] <= d) lo = mid; else hi = mid - 1;
     }
-    carry = segLen - (d - (carry === 0 ? 0 : carry % stepM)) % stepM;
-    // simpler: rest nach letztem vollständigem Schritt
-    carry = (d < segLen) ? segLen - d : 0;
+    const sLen = cum[lo+1] - cum[lo];
+    const frac = sLen > 0 ? Math.min(1, (d - cum[lo]) / sLen) : 0;
+    result.push({
+      lat: pts[lo].lat + frac * (pts[lo+1].lat - pts[lo].lat),
+      lng: pts[lo].lng + frac * (pts[lo+1].lng - pts[lo].lng),
+    });
   }
-  // Letzten Punkt immer anhängen
   result.push({...pts[pts.length-1]});
   return result;
 }
