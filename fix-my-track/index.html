@@ -107,7 +107,7 @@ header{background:var(--surface);border-bottom:1px solid var(--border);padding:0
 <body>
 
 <header>
-  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.4.2</span></div>
+  <div class="logo">Fix My <span>Track</span> <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">v0.4.3</span></div>
   <div class="header-actions">
     <button class="btn sm" id="btnReset" onclick="resetAll()" style="display:none">Neue Datei</button>
     <button class="btn sm primary" id="btnExport" onclick="exportTCX()" style="display:none">TCX exportieren</button>
@@ -790,6 +790,10 @@ async function exportTCX() {
     });
   });
 
+  // Always recalculate lap metadata from trackpoints for consistency
+  setStatus('blue', 'Lap-Metadaten werden neu berechnet…');
+  recalcLaps();
+
   const xml = new XMLSerializer().serializeToString(xmlDoc);
   const blob = new Blob([xml], {type:'application/xml'});
   const a = document.createElement('a');
@@ -797,7 +801,83 @@ async function exportTCX() {
   a.download = 'activity_fixed_' + new Date().toISOString().slice(0,16).replace(/[T:]/g,'_') + '.tcx';
   a.click();
   URL.revokeObjectURL(a.href);
-  setStatus('green', `Export fertig – ${added} Trackpoints eingefügt` + (elevationSource !== 'none' ? ` mit Höhendaten (${elevationSource})` : ''));
+  const elevMsg = elevationSource !== 'none' ? ` · Höhendaten: ${elevationSource}` : '';
+  setStatus('green', `Export fertig – ${added} neue Trackpoints · Lap-Metadaten neu berechnet${elevMsg}`);
+}
+
+// ─── Lap metadata recalculation ───────────────────────────────────────────────
+function recalcLaps() {
+  const laps = Array.from(xmlDoc.getElementsByTagName('Lap'));
+  if(!laps.length) return;
+
+  const NS = xmlDoc.documentElement.namespaceURI || '';
+  const mkEl = tag => NS ? xmlDoc.createElementNS(NS, tag) : xmlDoc.createElement(tag);
+  const mkText = (tag, val) => { const el = mkEl(tag); el.textContent = val; return el; };
+
+  function getOrCreate(parent, tag) {
+    let el = parent.getElementsByTagName(tag)[0];
+    if(!el) { el = mkEl(tag); parent.appendChild(el); }
+    return el;
+  }
+
+  function tpTime(tp) {
+    const t = tp.getElementsByTagName('Time')[0];
+    return t ? new Date(t.textContent.trim()) : null;
+  }
+  function tpLat(tp) { const e = tp.getElementsByTagName('LatitudeDegrees')[0]; return e ? parseFloat(e.textContent) : null; }
+  function tpLon(tp) { const e = tp.getElementsByTagName('LongitudeDegrees')[0]; return e ? parseFloat(e.textContent) : null; }
+  function tpHR(tp)  { const e = tp.getElementsByTagName('Value')[0]; return e ? parseFloat(e.textContent) : null; }
+
+  laps.forEach(lap => {
+    const tps = Array.from(lap.getElementsByTagName('Trackpoint'))
+      .filter(tp => tpTime(tp))
+      .sort((a,b) => tpTime(a) - tpTime(b));
+    if(!tps.length) return;
+
+    const t0 = tpTime(tps[0]);
+    const t1 = tpTime(tps[tps.length-1]);
+    const totalSec = (t1 - t0) / 1000;
+
+    // Distance: sum of haversine between consecutive trackpoints with position
+    let dist = 0;
+    for(let i = 1; i < tps.length; i++) {
+      const la1=tpLat(tps[i-1]), lo1=tpLon(tps[i-1]);
+      const la2=tpLat(tps[i]),   lo2=tpLon(tps[i]);
+      if(la1!==null && lo1!==null && la2!==null && lo2!==null)
+        dist += haversine(la1, lo1, la2, lo2);
+    }
+
+    // Max speed: max distance/time between consecutive points (m/s)
+    let maxSpeed = 0;
+    for(let i = 1; i < tps.length; i++) {
+      const dt = (tpTime(tps[i]) - tpTime(tps[i-1])) / 1000;
+      if(dt <= 0) continue;
+      const la1=tpLat(tps[i-1]), lo1=tpLon(tps[i-1]);
+      const la2=tpLat(tps[i]),   lo2=tpLon(tps[i]);
+      if(la1!==null && la2!==null) maxSpeed = Math.max(maxSpeed, haversine(la1,lo1,la2,lo2)/dt);
+    }
+
+    // Heart rate stats
+    const hrs = tps.map(tpHR).filter(h => h !== null && !isNaN(h));
+    const avgHR = hrs.length ? hrs.reduce((a,b)=>a+b,0)/hrs.length : null;
+    const maxHR = hrs.length ? Math.max(...hrs) : null;
+
+    // Write back
+    getOrCreate(lap, 'TotalTimeSeconds').textContent = totalSec.toFixed(2);
+    getOrCreate(lap, 'DistanceMeters').textContent   = dist.toFixed(2);
+    getOrCreate(lap, 'MaximumSpeed').textContent     = maxSpeed.toFixed(6);
+
+    if(avgHR !== null) {
+      let avgEl = lap.getElementsByTagName('AverageHeartRateBpm')[0];
+      if(!avgEl) { avgEl = mkEl('AverageHeartRateBpm'); lap.appendChild(avgEl); }
+      getOrCreate(avgEl, 'Value').textContent = Math.round(avgHR);
+    }
+    if(maxHR !== null) {
+      let maxEl = lap.getElementsByTagName('MaximumHeartRateBpm')[0];
+      if(!maxEl) { maxEl = mkEl('MaximumHeartRateBpm'); lap.appendChild(maxEl); }
+      getOrCreate(maxEl, 'Value').textContent = Math.round(maxHR);
+    }
+  });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
